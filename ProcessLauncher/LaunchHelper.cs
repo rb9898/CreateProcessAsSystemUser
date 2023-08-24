@@ -1,9 +1,15 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace ProcessLauncher
 {
     public class LaunchHelper
     {
+        #region constants
+        public const UInt32 MAXIMUM_ALLOWED = 0x02000000;
+        public const UInt32 TOKEN_DUPLICATE = 0x0002;
+        #endregion
+
         #region structs
         [StructLayout(LayoutKind.Sequential)]
         private struct STARTUPINFO
@@ -75,11 +81,29 @@ namespace ProcessLauncher
             String lpCurrentDirectory,
             ref STARTUPINFO lpStartupInfo,
             out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hSnapshot);
         #endregion
 
         public static void StartProcessAsSystemUser()
         {
-
+            uint activeSessionId = WTSGetActiveConsoleSessionId();
+            uint winlogonPid = 0;
+            Process[] processes = Process.GetProcessesByName("winlogon");
+            foreach (Process p in processes)
+            {
+                if ((uint)p.SessionId == activeSessionId)
+                {
+                    winlogonPid = (uint)p.Id;
+                }
+            }
+            IntPtr winlogonHandle = OpenProcess(MAXIMUM_ALLOWED, false, winlogonPid);
+            IntPtr winlogonToken = IntPtr.Zero;
+            if (!OpenProcessToken(winlogonHandle, TOKEN_DUPLICATE, out winlogonToken))
+            {
+                CloseHandle(winlogonHandle);
+            }
         }
     }
 }
