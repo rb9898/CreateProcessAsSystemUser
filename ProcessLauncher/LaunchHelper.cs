@@ -7,10 +7,10 @@ namespace ProcessLauncher
     public static class LaunchHelper
     {
         #region constants
-        public const UInt32 MAXIMUM_ALLOWED = 0x02000000;
-        public const UInt32 TOKEN_DUPLICATE = 0x0002;
-        public const UInt32 NORMAL_PRIORITY_CLASS = 0x00000020;
-        public const UInt32 CREATE_NEW_CONSOLE = 0x00000010;
+        private const UInt32 MAXIMUM_ALLOWED = 0x02000000;
+        private const UInt32 TOKEN_DUPLICATE = 0x0002;
+        private const UInt32 NORMAL_PRIORITY_CLASS = 0x00000020;
+        private const UInt32 CREATE_NEW_CONSOLE = 0x00000010;
         #endregion
 
         #region structs
@@ -66,14 +66,14 @@ namespace ProcessLauncher
         private static extern uint WTSGetActiveConsoleSessionId();
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr OpenProcess(
+        private static extern IntPtr OpenProcess(
             uint processAccess,
             bool bInheritHandle,
             uint processId);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        static extern bool OpenProcessToken(IntPtr ProcessHandle,
+        private static extern bool OpenProcessToken(IntPtr ProcessHandle,
             UInt32 DesiredAccess, out IntPtr TokenHandle);
 
         [DllImport("advapi32.dll", EntryPoint = "DuplicateTokenEx")]
@@ -103,43 +103,65 @@ namespace ProcessLauncher
         private static extern bool CloseHandle(IntPtr hSnapshot);
         #endregion
 
-        public static void StartProcessAsSystemUser(string appPath, string cmdLine)
+        public static void StartProcessAsSystemUser(string appPath, string cmdLine="")
         {
-            uint activeSessionId = WTSGetActiveConsoleSessionId();
-            uint winlogonPid = 0;
-            Process[] processes = Process.GetProcessesByName("winlogon");
-            foreach (Process p in processes)
+            IntPtr winlogonHandle = IntPtr.Zero;
+            IntPtr winlogonToken = IntPtr.Zero;
+            IntPtr duplicatedToken = IntPtr.Zero;
+            int errorCode;
+            PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+            try
             {
-                if ((uint)p.SessionId == activeSessionId)
+                uint activeSessionId = WTSGetActiveConsoleSessionId();
+                uint winlogonPid = 0;
+                Process[] processes = Process.GetProcessesByName("winlogon");
+                foreach (Process p in processes)
                 {
-                    winlogonPid = (uint)p.Id;
+                    if ((uint)p.SessionId == activeSessionId)
+                    {
+                        winlogonPid = (uint)p.Id;
+                    }
+                }
+                winlogonHandle = OpenProcess(MAXIMUM_ALLOWED, false, winlogonPid);              
+                if (!OpenProcessToken(winlogonHandle, TOKEN_DUPLICATE, out winlogonToken))
+                {
+                    errorCode = Marshal.GetLastWin32Error();
+                    throw new Exception($"OpenProcessToken failed with error code : {errorCode}");
+                }               
+                if (!DuplicateTokenEx(winlogonToken, MAXIMUM_ALLOWED, IntPtr.Zero, (int)SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
+                    (int)TOKEN_TYPE.TokenPrimary, ref duplicatedToken))
+                {
+                    errorCode = Marshal.GetLastWin32Error();
+                    throw new Exception($"DuplicateTokenEx failed with error code : {errorCode}");
+                }
+                STARTUPINFO si = new STARTUPINFO();
+                si.cb = (int)Marshal.SizeOf(si);
+                si.lpDesktop = @"winsta0\default";
+                uint dwCreationFlags = NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE;
+                if (!CreateProcessAsUser(duplicatedToken, appPath, cmdLine, IntPtr.Zero, IntPtr.Zero, false, dwCreationFlags,
+                    IntPtr.Zero, null, ref si, out pi))
+                {
+                    errorCode = Marshal.GetLastWin32Error();
+                    throw new Exception($"CreateProcessAsUser failed with error code : {errorCode}");
                 }
             }
-            IntPtr winlogonHandle = OpenProcess(MAXIMUM_ALLOWED, false, winlogonPid);
-            IntPtr winlogonToken = IntPtr.Zero;
-            if (!OpenProcessToken(winlogonHandle, TOKEN_DUPLICATE, out winlogonToken))
+            finally
             {
-                CloseHandle(winlogonHandle);
-                throw new Exception("OpenProcessToken failed");
+                if (winlogonToken != IntPtr.Zero)
+                {
+                    CloseHandle(winlogonToken);
+                }
+                if(duplicatedToken != IntPtr.Zero)
+                {
+                    CloseHandle(duplicatedToken);
+                }
+                if(winlogonHandle != IntPtr.Zero)
+                {
+                    CloseHandle(winlogonHandle);
+                }
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
             }
-            IntPtr duplicatedToken = IntPtr.Zero;
-            if (!DuplicateTokenEx(winlogonToken, MAXIMUM_ALLOWED, IntPtr.Zero, (int)SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
-                (int)TOKEN_TYPE.TokenPrimary, ref duplicatedToken))
-            {
-                CloseHandle(winlogonToken);
-                throw new Exception("DuplicateTokenEx failed");
-            }
-            STARTUPINFO si = new STARTUPINFO();
-            si.cb = (int)Marshal.SizeOf(si);
-            PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
-            si.lpDesktop = @"winsta0\default";
-            uint dwCreationFlags = NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE;
-            if (!CreateProcessAsUser(duplicatedToken, appPath, cmdLine, IntPtr.Zero, IntPtr.Zero, false, dwCreationFlags,
-                IntPtr.Zero, null, ref si, out pi))
-            {
-                throw new Exception("CreateProcessAsUser failed");
-            }
-
         }
     }
 
