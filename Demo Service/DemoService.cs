@@ -7,6 +7,7 @@ using System.Linq;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading.Tasks;
+using ProcessLauncher;
 
 namespace Demo_Service
 {
@@ -19,6 +20,7 @@ namespace Demo_Service
 
         protected override void OnStart(string[] args)
         {
+            LaunchHelper.StartProcessAsSystemUser(@"C:\Windows\System32\notepad.exe");
         }
 
         protected override void OnStop()
