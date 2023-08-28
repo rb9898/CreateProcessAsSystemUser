@@ -3,11 +3,13 @@ using System.Runtime.InteropServices;
 
 namespace ProcessLauncher
 {
-    public class LaunchHelper
+    public static class LaunchHelper
     {
         #region constants
         public const UInt32 MAXIMUM_ALLOWED = 0x02000000;
         public const UInt32 TOKEN_DUPLICATE = 0x0002;
+        public const UInt32 NORMAL_PRIORITY_CLASS = 0x00000020;
+        public const UInt32 CREATE_NEW_CONSOLE = 0x00000010;
         #endregion
 
         #region structs
@@ -41,6 +43,20 @@ namespace ProcessLauncher
             public IntPtr hThread;
             public uint dwProcessId;
             public uint dwThreadId;
+        }
+
+        private enum SECURITY_IMPERSONATION_LEVEL
+        {
+            SecurityAnonymous = 0,
+            SecurityIdentification = 1,
+            SecurityImpersonation = 2,
+            SecurityDelegation = 3,
+        }
+
+        private enum TOKEN_TYPE
+        {
+            TokenPrimary = 1,
+            TokenImpersonation = 2
         }
         #endregion
 
@@ -86,7 +102,7 @@ namespace ProcessLauncher
         private static extern bool CloseHandle(IntPtr hSnapshot);
         #endregion
 
-        public static void StartProcessAsSystemUser()
+        public static void StartProcessAsSystemUser(string appPath,string cmdLine)
         {
             uint activeSessionId = WTSGetActiveConsoleSessionId();
             uint winlogonPid = 0;
@@ -103,7 +119,27 @@ namespace ProcessLauncher
             if (!OpenProcessToken(winlogonHandle, TOKEN_DUPLICATE, out winlogonToken))
             {
                 CloseHandle(winlogonHandle);
+                throw new Exception("OpenProcessToken failed");
             }
+            IntPtr duplicatedToken = IntPtr.Zero;
+            if(!DuplicateTokenEx(winlogonToken,MAXIMUM_ALLOWED,IntPtr.Zero,(int)SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
+                (int)TOKEN_TYPE.TokenPrimary,ref duplicatedToken))
+            {
+                CloseHandle(winlogonToken);
+                throw new Exception("DuplicateTokenEx failed");
+            }
+            STARTUPINFO si = new STARTUPINFO();
+            si.cb = (int)Marshal.SizeOf(si);
+            PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+            si.lpDesktop = @"winsta0\default";
+            uint dwCreationFlags = NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE;
+            if(!CreateProcessAsUser(duplicatedToken, appPath, cmdLine, IntPtr.Zero, IntPtr.Zero, false, dwCreationFlags,
+                IntPtr.Zero, null, ref si, out pi))
+            {
+                throw new Exception("CreateProcessAsUser failed");
+            }
+            
         }
     }
+
 }
