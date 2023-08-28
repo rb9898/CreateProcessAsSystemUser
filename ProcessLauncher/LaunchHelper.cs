@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace ProcessLauncher
@@ -102,7 +103,7 @@ namespace ProcessLauncher
         private static extern bool CloseHandle(IntPtr hSnapshot);
         #endregion
 
-        public static void StartProcessAsSystemUser(string appPath,string cmdLine)
+        public static void StartProcessAsSystemUser(string appPath, string cmdLine)
         {
             uint activeSessionId = WTSGetActiveConsoleSessionId();
             uint winlogonPid = 0;
@@ -122,8 +123,8 @@ namespace ProcessLauncher
                 throw new Exception("OpenProcessToken failed");
             }
             IntPtr duplicatedToken = IntPtr.Zero;
-            if(!DuplicateTokenEx(winlogonToken,MAXIMUM_ALLOWED,IntPtr.Zero,(int)SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
-                (int)TOKEN_TYPE.TokenPrimary,ref duplicatedToken))
+            if (!DuplicateTokenEx(winlogonToken, MAXIMUM_ALLOWED, IntPtr.Zero, (int)SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
+                (int)TOKEN_TYPE.TokenPrimary, ref duplicatedToken))
             {
                 CloseHandle(winlogonToken);
                 throw new Exception("DuplicateTokenEx failed");
@@ -133,12 +134,12 @@ namespace ProcessLauncher
             PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
             si.lpDesktop = @"winsta0\default";
             uint dwCreationFlags = NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE;
-            if(!CreateProcessAsUser(duplicatedToken, appPath, cmdLine, IntPtr.Zero, IntPtr.Zero, false, dwCreationFlags,
+            if (!CreateProcessAsUser(duplicatedToken, appPath, cmdLine, IntPtr.Zero, IntPtr.Zero, false, dwCreationFlags,
                 IntPtr.Zero, null, ref si, out pi))
             {
                 throw new Exception("CreateProcessAsUser failed");
             }
-            
+
         }
     }
 
